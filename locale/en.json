@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "Session broadcast",
+    "description": "Send one message to several sessions at once from a composer toolbar button.",
+    "detail": "docs/DETAIL.md"
+  }
+}

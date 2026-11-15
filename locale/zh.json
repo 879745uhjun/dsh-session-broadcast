@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "会话群发",
+    "description": "在输入框工具栏一键把同一条消息发给多个会话。",
+    "detail": "docs/DETAIL.md"
+  }
+}
