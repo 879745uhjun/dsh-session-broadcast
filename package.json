@@ -1,6 +1,6 @@
 {
   "name": "dsh-session-broadcast",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Send one message to several DSH sessions at once: a composer toolbar button opens a picker, and every selected session receives the same queued user message.",
   "type": "module",
   "main": "index.js",
@@ -19,7 +19,8 @@
     "docs",
     "icon.svg",
     "README.md",
-    "README.zh.md"
+    "README.zh.md",
+    "CHANGELOG.md"
   ],
   "keywords": [
     "dsh",
@@ -34,6 +35,14 @@
   },
   "license": "MIT",
   "author": "879745uhjun",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/879745uhjun/dsh-session-broadcast.git"
+  },
+  "homepage": "https://github.com/879745uhjun/dsh-session-broadcast#readme",
+  "bugs": {
+    "url": "https://github.com/879745uhjun/dsh-session-broadcast/issues"
+  },
   "scripts": {
     "test": "node test/client.dom.test.mjs"
   },

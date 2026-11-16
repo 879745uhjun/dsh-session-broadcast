@@ -32,6 +32,13 @@ The chips only filter. They never change membership, and the plugin never
 writes to the box store. If the box plugin is absent or its route fails, the
 chip row and badges disappear and the picker keeps working.
 
+## Appearance
+
+The dialog is built from theme tokens only, so it follows the light and dark
+palettes without a separate stylesheet. Every class is scoped to the `sbc-`
+prefix, which keeps it from colliding with the box plugin's own `dsb-` styles
+or with any other plugin that injects CSS into the same document.
+
 ## Delivery semantics
 
 The plugin does not invent a messaging channel. Each target is prompted through
@@ -40,8 +47,10 @@ consequences:
 
 - The message becomes an ordinary durable user message, visible in that
   session's history and to its agent.
-- Delivery mode is `queue`: a session that is mid-turn receives the message
-  after its current turn, so a broadcast never interrupts running work.
+- Delivery mode is chosen in the dialog. The default is `queue`: a session that
+  is mid-turn receives the message after its current turn, so a broadcast never
+  interrupts running work. Turning on the interrupt toggle sends with `steer`,
+  which drops the target's current turn and handles the message immediately.
 - An idle session starts a new turn, and a cold session is resumed on the Host.
 - The plugin holds its reference to a target only while the send is in flight,
   so the picker does not keep sessions open afterwards.

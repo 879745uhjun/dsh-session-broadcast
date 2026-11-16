@@ -38,6 +38,8 @@ window.__ModuleLoader__.load({
     const SOURCE = 'broadcast'
     /** Delivery mode: append after the current turn, never interrupt it. */
     const MODE = 'queue'
+    /** Delivery mode that interrupts the running turn immediately. */
+    const MODE_STEER = 'steer'
     /** Same-origin route owned by dsh-session-boxes; GET returns `{ ok, state }`. */
     const BOX_ENDPOINT = '/session-boxes'
     /** Filter value meaning "sessions with no box". */
@@ -60,7 +62,7 @@ window.__ModuleLoader__.load({
       'button.title': '群发消息到多个会话',
       'button.label': '群发',
       'dialog.title': '群发消息',
-      'dialog.hint': '勾选会话后发送。每个会话收到同一条消息；正在运行的会话会在当前回合结束后收到，不会被打断。',
+      'dialog.hint': '勾选会话后发送，每个会话收到同一条消息。',
       'dialog.close': '关闭',
       'dialog.placeholder': '要发送给所有已选会话的消息…',
       'dialog.search': '筛选会话标题或工作区',
@@ -88,13 +90,16 @@ window.__ModuleLoader__.load({
       'boxes.label': '按箱子筛选',
       'boxes.all': '全部',
       'boxes.ungrouped': '未分组',
+      'mode.toggle': '打断当前回合',
+      'mode.queueHint': '排队：等目标会话当前回合结束后再发送，不打断。',
+      'mode.steerHint': '打断：立即中断目标会话的当前回合，马上处理这条消息。',
     }
 
     const EN = {
       'button.title': 'Send one message to several sessions',
       'button.label': 'Broadcast',
       'dialog.title': 'Broadcast a message',
-      'dialog.hint': 'Pick the sessions, then send. Every session receives the same message; a running session gets it after its current turn, without being interrupted.',
+      'dialog.hint': 'Pick the sessions, then send; every session receives the same message.',
       'dialog.close': 'Close',
       'dialog.placeholder': 'Message to send to every selected session…',
       'dialog.search': 'Filter by session title or workspace',
@@ -122,6 +127,9 @@ window.__ModuleLoader__.load({
       'boxes.label': 'Filter by box',
       'boxes.all': 'All',
       'boxes.ungrouped': 'Ungrouped',
+      'mode.toggle': 'Interrupt the current turn',
+      'mode.queueHint': 'Queued: sent after each target finishes its current turn, without interrupting.',
+      'mode.steerHint': 'Steer: interrupts each target’s current turn and handles this message immediately.',
     }
 
     /* ------------------------------------------------------------------ *
@@ -255,6 +263,7 @@ window.__ModuleLoader__.load({
         results: [],
         current: '',
         notice: '',
+        mode: MODE,
         boxes: { status: 'idle', items: [], bySession: {}, error: null },
         boxFilter: null,
       }
@@ -419,9 +428,10 @@ window.__ModuleLoader__.load({
      * @param ids - target Session ids in display order.
      * @param text - the message body shared by every target.
      * @param names - Session id to display title, captured before sending.
+     * @param mode - `queue` waits for the current turn, `steer` interrupts it.
      * @returns one result row per target.
      */
-    async function deliver(sessions, ids, text, names) {
+    async function deliver(sessions, ids, text, names, mode) {
       const results = []
       for (const id of ids) {
         dialog.set((state) => ({ ...state, current: id }))
@@ -429,7 +439,7 @@ window.__ModuleLoader__.load({
         let result
         try {
           const outcome = await sessions.using(id, { source: SOURCE }, (reference) =>
-            reference.binding.session.prompt([{ type: 'text', text }], MODE))
+            reference.binding.session.prompt([{ type: 'text', text }], mode))
           result = outcome?.ok === true
             ? { sessionId: id, title, ok: true }
             : {
@@ -472,7 +482,14 @@ window.__ModuleLoader__.load({
 .sbc-close:disabled{opacity:.4;cursor:default}
 .sbc-hint{margin:0;color:var(--dsw-alias-label-secondary);font-size:12px}
 .sbc-text{width:100%;min-height:88px;max-height:220px;resize:vertical;box-sizing:border-box;padding:9px 10px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:inherit;font:inherit}
-.sbc-text:focus{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:-1px}
+.sbc-text:focus{outline:2px solid var(--dsw-alias-brand-primary-new-color,#4176e6);outline-offset:-1px}
+.sbc-mode{display:flex;align-items:flex-start;gap:8px;padding:7px 9px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);cursor:pointer}
+.sbc-mode:hover{background:var(--dsw-alias-interactive-bg-hover,var(--dsw-alias-bg-layer-1))}
+.sbc-mode.is-steer{border-color:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 55%,transparent);background:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 10%,transparent)}
+.sbc-mode__box{width:14px;height:14px;margin:2px 0 0;flex:none;accent-color:var(--dsw-alias-brand-primary-new-color,#4176e6)}
+.sbc-mode__text{display:flex;flex-direction:column;gap:2px;min-width:0}
+.sbc-mode__title{font-size:12px;line-height:16px;color:var(--dsw-alias-label-primary)}
+.sbc-mode__hint{font-size:11px;line-height:15px;color:var(--dsw-alias-label-secondary)}
 .sbc-tools{display:flex;align-items:center;gap:8px}
 .sbc-search{flex:1;min-width:0;height:28px;padding:0 9px;border-radius:7px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:inherit;font:inherit}
 .sbc-mini{height:26px;padding:0 9px;border-radius:7px;border:1px solid var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;cursor:pointer;white-space:nowrap}
@@ -507,9 +524,10 @@ window.__ModuleLoader__.load({
 .sbc-actions{display:flex;align-items:center;gap:8px}
 .sbc-btn{height:30px;padding:0 13px;border-radius:8px;border:1px solid var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-primary);font:inherit;cursor:pointer}
 .sbc-btn:hover:not(:disabled){background:var(--dsw-alias-bg-layer-2)}
-.sbc-btn:disabled{opacity:.5;cursor:default}
-.sbc-btn.is-primary{border-color:transparent;background:var(--dsw-alias-brand-primary);color:#fff}
-.sbc-btn.is-primary:hover:not(:disabled){filter:brightness(1.06)}
+.sbc-btn:disabled{opacity:.55;cursor:default}
+.sbc-btn.is-primary{border-color:transparent;background:var(--dsw-alias-brand-primary-new-color,#4176e6);color:#fff}
+.sbc-btn.is-primary:hover:not(:disabled){filter:brightness(1.08)}
+.sbc-btn.is-primary:disabled{background:var(--dsw-alias-interactive-bg-hover-solid,var(--dsw-alias-bg-layer-2));color:var(--dsw-alias-label-secondary);opacity:1}
 .sbc-notice{color:var(--dsw-alias-state-warn-primary);font-size:12px}
 .sbc-results{border-top:1px solid var(--dsw-alias-border-l2);padding-top:10px;display:flex;flex-direction:column;gap:6px;max-height:180px;overflow:auto}
 .sbc-results__title{font-size:12px;font-weight:600}
@@ -670,7 +688,7 @@ window.__ModuleLoader__.load({
         const names = {}
         for (const row of rows) names[row.id] = row.title
         dialog.set({ ...current, phase: 'sending', results: [], notice: '', current: ids[0] })
-        const results = await deliver(sessions, ids, text, names)
+        const results = await deliver(sessions, ids, text, names, current.mode === MODE_STEER ? MODE_STEER : MODE)
         const selected = {}
         for (const row of results) if (row.ok !== true) selected[row.sessionId] = true
         dialog.set((latest) => ({ ...latest, phase: 'done', current: '', results, selected }))
@@ -767,6 +785,23 @@ window.__ModuleLoader__.load({
             onKeyDown,
             onChange: (event) => setText(event.target.value),
           }),
+          h('label', { className: state.mode === MODE_STEER ? 'sbc-mode is-steer' : 'sbc-mode' },
+            h('input', {
+              type: 'checkbox',
+              className: 'sbc-mode__box',
+              checked: state.mode === MODE_STEER,
+              disabled: sending,
+              onChange: (event) => dialog.set((current) => ({
+                ...current,
+                mode: event.target.checked ? MODE_STEER : MODE,
+              })),
+            }),
+            h('span', { className: 'sbc-mode__text' },
+              h('span', { className: 'sbc-mode__title' }, tr('mode.toggle')),
+              h('span', { className: 'sbc-mode__hint' },
+                state.mode === MODE_STEER ? tr('mode.steerHint') : tr('mode.queueHint')),
+            ),
+          ),
           h('div', { className: 'sbc-tools' },
             h('input', {
               className: 'sbc-search',

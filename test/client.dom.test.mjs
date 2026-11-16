@@ -245,6 +245,10 @@ console.log('session-broadcast: plugin registration')
     .flatMap((selector) => selector.split(',').map((one) => one.trim()))
   check('every rule is scoped to the sbc- prefix', selectors.every((selector) => selector.startsWith('.sbc-')),
     selectors.filter((selector) => !selector.startsWith('.sbc-')).join(' | '))
+  check('primary action uses the blue brand token',
+    /\.sbc-btn\.is-primary\{[^}]*--dsw-alias-brand-primary-new-color/.test(css))
+  check('primary action does not paint on the theme foreground token',
+    !/\.sbc-btn\.is-primary\{[^}]*background:var\(--dsw-alias-brand-primary\)/.test(css))
   loaded.effects.forEach((effect) => effect.dispose?.())
 }
 
@@ -355,6 +359,30 @@ console.log('session-broadcast: box classification')
   check('delivery went only to the filtered box',
     loaded.deliveries.length === 2 && loaded.deliveries.every((call) => call.id === 's-b' || call.id === 's-c'),
     loaded.deliveries.map((call) => call.id).join(','))
+}
+
+console.log('session-broadcast: delivery mode')
+{
+  const loaded = loadPlugin()
+  const { host } = mount(loaded)
+  await waitFor(() => host.querySelector('button.sbc-tool'), 'toolbar button')
+  host.querySelector('button.sbc-tool').click()
+  await waitFor(() => host.querySelector('.sbc-dialog') !== null, 'dialog')
+
+  const modeBox = host.querySelector('.sbc-mode__box')
+  check('queue is the default delivery mode', modeBox.checked === false)
+  check('default hint explains queueing', host.querySelector('.sbc-mode__hint').textContent.includes('排队'))
+  modeBox.click()
+  await waitFor(() => host.querySelector('.sbc-mode__hint').textContent.includes('打断'), 'steer hint')
+  check('toggle marks the interrupt state', host.querySelector('.sbc-mode').className.includes('is-steer'))
+
+  host.querySelectorAll('.sbc-row .sbc-check')[0].click()
+  type(host.querySelector('textarea.sbc-text'), 'steer message')
+  await waitFor(() => host.querySelector('.sbc-btn.is-primary').disabled === false, 'send enabled')
+  host.querySelector('.sbc-btn.is-primary').click()
+  await waitFor(() => loaded.deliveries.length === 1, 'delivery')
+  check('steer mode reaches the prompt', loaded.deliveries[0].mode === 'steer', loaded.deliveries[0].mode)
+  check('steer keeps the single text part', loaded.deliveries[0].content[0].text === 'steer message')
 }
 
 console.log('session-broadcast: boxes unavailable')

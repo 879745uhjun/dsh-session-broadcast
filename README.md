@@ -18,10 +18,12 @@ receives the same user message.
   "select all" inside a box sends to that whole branch. The chips are refreshed
   each time the dialog opens, so a rename or a moved session is reflected
   immediately; without that plugin the dialog simply has no chips.
-- **Queued, never interrupting.** Each target receives the text through the
-  same path the composer uses, with `queue` delivery: a session that is
-  mid-turn gets the message after its current turn instead of being cut off.
-  An idle session starts a new turn as if you had typed it there.
+- **Queue by default, interrupt on request.** Every target receives the text
+  through the same path the composer uses. With the toggle off (the default)
+  delivery is `queue`: a session that is mid-turn gets the message after its
+  current turn. Turn the toggle on to send with `steer`, which drops the
+  target's current turn and handles the message immediately; the hint under the
+  toggle always states the current consequence.
 - **Honest results.** Delivery runs one session at a time and reports a result
   per target: queued, or the Host's rejection code and message. **Retry failed**
   resends only the failures; the draft text stays in the box.
@@ -31,7 +33,8 @@ receives the same user message.
 1. Open any conversation.
 2. Click the speaker icon on the left of the composer toolbar.
 3. Optionally filter the list, then tick the sessions.
-4. Type the message and send with the button or Ctrl/Cmd+Enter.
+4. Leave the interrupt toggle off to queue, or turn it on to interrupt.
+5. Type the message and send with the button or Ctrl/Cmd+Enter.
 
 Search matches session titles, workspace names, and session ids. **Select all**
 and **Clear** act on the filtered rows only, so a box chip plus **Select all**
