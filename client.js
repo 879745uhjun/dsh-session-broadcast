@@ -261,7 +261,7 @@ window.__ModuleLoader__.load({
         selected: {},
         phase: 'idle',
         results: [],
-        current: '',
+        done: 0,
         notice: '',
         mode: MODE,
         boxes: { status: 'idle', items: [], bySession: {}, error: null },
@@ -417,50 +417,92 @@ window.__ModuleLoader__.load({
       return parent === undefined ? box.name : `${parent.name} › ${box.name}`
     }
 
+    /** How many targets are written at once; small enough to keep the Host calm. */
+    const CONCURRENCY = 3
+
     /**
-     * Deliver one text to each id in order, publishing progress as it goes.
+     * Write one text into one Session and describe the outcome.
      *
-     * Sequential delivery keeps the Host load predictable and lets the dialog
-     * show which Session is being written. Every failure is captured per
-     * Session, so one rejection never stops the rest of the batch.
+     * The reference is taken with `retain` but its readiness is never awaited.
+     * `using()` would first open the conversation, and that read pulls a history
+     * page of up to 500 messages per target — pure waste when the only thing
+     * being written is one short prompt. Releasing straight after the call also
+     * tears that opening down, so a broadcast no longer drags conversation
+     * history over the wire at all.
+     *
+     * @param sessions - Client Session Controller service.
+     * @param id - target Session id.
+     * @param title - display title captured before sending.
+     * @param text - the message body.
+     * @param mode - `queue` waits for the current turn, `steer` interrupts it.
+     * @returns the result row; failures are described, never thrown.
+     */
+    async function deliverOne(sessions, id, title, text, mode) {
+      let reference
+      try {
+        reference = sessions.retain(id, { source: SOURCE })
+        const outcome = await reference.binding.session.prompt([{ type: 'text', text }], mode)
+        return outcome?.ok === true
+          ? { sessionId: id, title, ok: true }
+          : {
+              sessionId: id,
+              title,
+              ok: false,
+              code: outcome?.error?.code ?? 'UNKNOWN',
+              error: outcome?.error?.message ?? 'the Host rejected the prompt',
+            }
+      } catch (error) {
+        return {
+          sessionId: id,
+          title,
+          ok: false,
+          code: error?.code ?? 'UNKNOWN',
+          error: error instanceof Error ? error.message : String(error),
+        }
+      } finally {
+        reference?.release()
+      }
+    }
+
+    /**
+     * Deliver one text to every id, a few targets at a time.
+     *
+     * Two things keep a 10+ target broadcast quick. The first is that no target
+     * waits for its conversation history (`deliverOne` prompts without awaiting
+     * `ready`). The second is a small worker pool: each prompt may make the Host
+     * resume a cold Session, so three in flight hide that latency without
+     * starting a burst of agents. Results are stored by target index, so the
+     * list still reads in display order even when replies finish out of order.
+     * Each result is captured per Session, so one rejection never stops the rest.
      *
      * @param sessions - Client Session Controller service.
      * @param ids - target Session ids in display order.
      * @param text - the message body shared by every target.
      * @param names - Session id to display title, captured before sending.
-     * @param mode - `queue` waits for the current turn, `steer` interrupts it.
-     * @returns one result row per target.
+     * @param mode - `queue` or `steer`.
+     * @returns one result row per target, in `ids` order.
      */
     async function deliver(sessions, ids, text, names, mode) {
-      const results = []
-      for (const id of ids) {
-        dialog.set((state) => ({ ...state, current: id }))
-        const title = names[id] ?? id
-        let result
-        try {
-          const outcome = await sessions.using(id, { source: SOURCE }, (reference) =>
-            reference.binding.session.prompt([{ type: 'text', text }], mode))
-          result = outcome?.ok === true
-            ? { sessionId: id, title, ok: true }
-            : {
-                sessionId: id,
-                title,
-                ok: false,
-                code: outcome?.error?.code ?? 'UNKNOWN',
-                error: outcome?.error?.message ?? 'the Host rejected the prompt',
-              }
-        } catch (error) {
-          result = {
-            sessionId: id,
-            title,
-            ok: false,
-            code: error?.code ?? 'UNKNOWN',
-            error: error instanceof Error ? error.message : String(error),
-          }
+      const results = new Array(ids.length)
+      let cursor = 0
+      let completed = 0
+      const worker = async () => {
+        for (;;) {
+          const index = cursor
+          cursor += 1
+          if (index >= ids.length) return
+          const id = ids[index]
+          results[index] = await deliverOne(sessions, id, names[id] ?? id, text, mode)
+          completed += 1
+          dialog.set((state) => ({
+            ...state,
+            results: results.filter((row) => row !== undefined),
+            done: completed,
+          }))
         }
-        results.push(result)
-        dialog.set((state) => ({ ...state, results: results.slice() }))
       }
+      const workers = Math.max(1, Math.min(CONCURRENCY, ids.length))
+      await Promise.all(Array.from({ length: workers }, () => worker()))
       return results
     }
 
@@ -687,11 +729,11 @@ window.__ModuleLoader__.load({
         }
         const names = {}
         for (const row of rows) names[row.id] = row.title
-        dialog.set({ ...current, phase: 'sending', results: [], notice: '', current: ids[0] })
+        dialog.set({ ...current, phase: 'sending', results: [], notice: '', done: 0 })
         const results = await deliver(sessions, ids, text, names, current.mode === MODE_STEER ? MODE_STEER : MODE)
         const selected = {}
         for (const row of results) if (row.ok !== true) selected[row.sessionId] = true
-        dialog.set((latest) => ({ ...latest, phase: 'done', current: '', results, selected }))
+        dialog.set((latest) => ({ ...latest, phase: 'done', results, selected }))
       }, [rows, sessions])
 
       const onKeyDown = useCallback((event) => {
@@ -706,8 +748,7 @@ window.__ModuleLoader__.load({
       const notice = state.notice === 'empty-text'
         ? tr('notice.emptyText')
         : state.notice === 'empty-targets' ? tr('notice.emptyTargets') : ''
-      const currentTitle = sending ? rows.find((row) => row.id === state.current)?.title ?? '' : ''
-      const progress = sending ? state.results.length : 0
+      const progress = sending ? state.done : 0
 
       /** One box filter chip; a coloured dot carries the sidebar's colour. */
       const filterChip = (value, label, count, color, nested) => h('button', {
@@ -865,7 +906,7 @@ window.__ModuleLoader__.load({
             h('span', { className: 'sbc-count' }, notice !== ''
               ? h('span', { className: 'sbc-notice' }, notice)
               : sending
-                ? tr('dialog.sending') + ' ' + progress + '/' + chosen + (currentTitle === '' ? '' : ' · ' + currentTitle)
+                ? tr('dialog.sending') + ' ' + progress + '/' + chosen
                 : tr('count.selected', { n: chosen }) + ' · ' + tr('count.all', { m: rows.length })),
             h('div', { className: 'sbc-actions' },
               h('button', {
@@ -917,7 +958,7 @@ window.__ModuleLoader__.load({
       inject: ['slots', 'sessions', 'locale'],
       apply(ctx) {
         const sessions = ctx.get('sessions')
-        if (sessions === undefined || typeof sessions.using !== 'function' || sessions.list === undefined) {
+        if (sessions === undefined || typeof sessions.retain !== 'function' || sessions.list === undefined) {
           throw new Error('session-broadcast: the sessions service is unavailable')
         }
 

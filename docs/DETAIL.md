@@ -55,7 +55,12 @@ consequences:
 - The plugin holds its reference to a target only while the send is in flight,
   so the picker does not keep sessions open afterwards.
 
-Sending runs one session at a time and publishes progress. A rejection is
+Sending writes up to three targets at once and publishes progress. A target
+never waits for its conversation history first: the reference is retained and
+prompted without awaiting `ready`, so a broadcast does not pull a history page
+(up to 500 messages) per target, and releasing the reference tears that opening
+down. Results are stored by target order, so the list reads in display order
+even when replies finish out of order. A rejection is
 recorded against that session and the batch continues. When the batch finishes,
 the dialog lists one row per target, marks each success or failure, and offers
 **Retry failed**, which resends only the failures and keeps the draft text.

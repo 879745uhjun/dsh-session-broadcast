@@ -24,8 +24,9 @@ receives the same user message.
   current turn. Turn the toggle on to send with `steer`, which drops the
   target's current turn and handles the message immediately; the hint under the
   toggle always states the current consequence.
-- **Honest results.** Delivery runs one session at a time and reports a result
-  per target: queued, or the Host's rejection code and message. **Retry failed**
+- **Honest results.** Delivery writes a few sessions at a time (three) and
+  reports a result per target: queued, or the Host's rejection code and
+  message. **Retry failed**
   resends only the failures; the draft text stays in the box.
 
 ## Usage

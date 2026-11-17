@@ -155,19 +155,41 @@ function loadPlugin(options = {}) {
     row('s-c', { title: 'Card deck', cwd: 'D:\\work\\cards', blank: true, updatedAt: 2_000 }),
     row('s-d', { title: 'Reader', cwd: 'D:\\work\\cards', origin: 'subagent', parentId: 's-c', updatedAt: 1_000 }),
   ]
+  // Per-target latency, so completions can finish out of display order.
+  const latency = options.latency ?? { 's-a': 30, 's-b': 5, 's-c': 15, 's-d': 5 }
+  const stats = { active: 0, peak: 0, releases: 0, retained: 0 }
   const sessions = {
     list: createStore(catalog(rows)),
-    async using(id, options, operation) {
-      if (options === undefined || typeof options !== 'object') throw new Error('using needs options')
-      if (options.source !== 'broadcast') throw new Error('unexpected source ' + String(options.source))
+    retain(id, retainOptions) {
+      if (retainOptions === undefined || typeof retainOptions !== 'object') throw new Error('retain needs options')
+      if (retainOptions.source !== 'broadcast') throw new Error('unexpected source ' + String(retainOptions.source))
+      stats.retained += 1
+      let released = false
       const session = {
         async prompt(content, mode) {
-          deliveries.push({ id, mode, content })
-          if (id === 's-b') return { ok: false, error: { code: 'session/agent-busy', message: 'still busy' } }
-          return { ok: true, value: { accepted: true } }
+          stats.active += 1
+          stats.peak = Math.max(stats.peak, stats.active)
+          try {
+            await new Promise((resolve) => setTimeout(resolve, latency[id] ?? 5))
+            deliveries.push({ id, mode, content })
+            if (id === 's-b') return { ok: false, error: { code: 'session/agent-busy', message: 'still busy' } }
+            return { ok: true, value: { accepted: true } }
+          } finally {
+            stats.active -= 1
+          }
         },
       }
-      return operation({ sessionId: id, binding: { session } })
+      return {
+        sessionId: id,
+        // A real reference exposes an opening promise; delivery must not wait on it.
+        ready: new Promise(() => {}),
+        binding: { session },
+        release() {
+          if (released) throw new Error('released twice: ' + id)
+          released = true
+          stats.releases += 1
+        },
+      }
     },
   }
   const workspaces = createStore({
@@ -206,7 +228,7 @@ function loadPlugin(options = {}) {
   }
 
   registration.apply(ctx)
-  return { slotEntries, ctx, deliveries, dicts, effects, sessions, workspaces }
+  return { slotEntries, ctx, deliveries, dicts, effects, sessions, workspaces, stats }
 }
 
 /** Render the toolbar button and the dialog into one host element. */
@@ -322,6 +344,38 @@ console.log('session-broadcast: picker and delivery')
   dom.window.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
   await waitFor(() => host.querySelector('.sbc-dialog') === null, 'escape closes')
   check('button no longer marked open', host.querySelector('button.sbc-tool').className === 'sbc-tool')
+}
+
+console.log('session-broadcast: batch delivery')
+{
+  const loaded = loadPlugin()
+  const { host } = mount(loaded)
+  await waitFor(() => host.querySelector('button.sbc-tool'), 'toolbar button')
+  host.querySelector('button.sbc-tool').click()
+  await waitFor(() => host.querySelectorAll('.sbc-row').length === 4, 'rows')
+
+  host.querySelectorAll('.sbc-mini')[0].click()
+  await waitFor(() => host.querySelectorAll('.sbc-row.is-checked').length === 4, 'selected')
+  type(host.querySelector('textarea.sbc-text'), 'batch')
+  await waitFor(() => host.querySelector('.sbc-btn.is-primary').disabled === false, 'send enabled')
+  host.querySelector('.sbc-btn.is-primary').click()
+  await waitFor(() => host.querySelector('.sbc-results') !== null, 'results', 10_000)
+
+  check('every reference is released exactly once',
+    loaded.stats.retained === 4 && loaded.stats.releases === 4,
+    `retained=${loaded.stats.retained} released=${loaded.stats.releases}`)
+  check('delivery overlaps without an unbounded burst',
+    loaded.stats.peak >= 2 && loaded.stats.peak <= 3, String(loaded.stats.peak))
+  check('all four prompts were written', loaded.deliveries.length === 4, String(loaded.deliveries.length))
+
+  // Targets finish 5/5/15/30 ms apart, so completion order differs from display
+  // order; the result list must still read in display order.
+  const displayOrder = [...host.querySelectorAll('.sbc-row')]
+    .map((node) => node.querySelector('.sbc-name').textContent)
+  const resultOrder = [...host.querySelectorAll('.sbc-result__name')].map((node) => node.textContent)
+  check('results keep display order despite out-of-order replies',
+    JSON.stringify(resultOrder) === JSON.stringify(displayOrder),
+    `results=${resultOrder.join(',')} | rows=${displayOrder.join(',')}`)
 }
 
 console.log('session-broadcast: box classification')
