@@ -31,3 +31,11 @@
 - 弹窗里的草稿只保留在当前页面，关闭应用后不保存。
 - 会话可见范围由客户端会话控制器决定：当前配置下列不出来的会话也无法作为目标。
 - 「已排队」表示 Host 已接受这条消息，不代表对方会话已经处理完成。
+
+## 从 GitHub 安装
+
+```sh
+dsh plugin --profile desktop add github:879745uhjun/dsh-session-broadcast
+```
+
+装好后刷新 Web 页面。

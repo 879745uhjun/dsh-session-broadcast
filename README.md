@@ -67,3 +67,10 @@ Session Controller, and drives the real dialog: catalog rows and tags,
 filtering, selection, queued delivery, per-target failures, and retrying only
 the failures.
 
+## Install from GitHub
+
+```sh
+dsh plugin --profile desktop add github:879745uhjun/dsh-session-broadcast
+```
+
+Reload the Web UI page after installing.
