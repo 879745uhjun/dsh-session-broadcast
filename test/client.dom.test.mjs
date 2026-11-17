@@ -265,12 +265,53 @@ console.log('session-broadcast: plugin registration')
     .map((part) => part.split('{')[0].trim())
     .filter((selector) => selector !== '')
     .flatMap((selector) => selector.split(',').map((one) => one.trim()))
-  check('every rule is scoped to the sbc- prefix', selectors.every((selector) => selector.startsWith('.sbc-')),
-    selectors.filter((selector) => !selector.startsWith('.sbc-')).join(' | '))
+  check('every rule is scoped to the sbc- prefix or a palette root',
+    selectors.every((selector) => selector.startsWith('.sbc-')
+      || selector === ':root'
+      || selector === 'body[data-ds-dark-theme]'
+      || selector.startsWith('body[data-ds-dark-theme] .sbc-')),
+    selectors.filter((selector) => !selector.startsWith('.sbc-')
+      && selector !== ':root'
+      && selector !== 'body[data-ds-dark-theme]'
+      && !selector.startsWith('body[data-ds-dark-theme] .sbc-')).join(' | '))
   check('primary action uses the blue brand token',
     /\.sbc-btn\.is-primary\{[^}]*--dsw-alias-brand-primary-new-color/.test(css))
   check('primary action does not paint on the theme foreground token',
     !/\.sbc-btn\.is-primary\{[^}]*background:var\(--dsw-alias-brand-primary\)/.test(css))
+
+  // ---- Data-colour palette: light and dark pairs, no stray literals ----
+  const lightBlock = css.match(/:root\{([^}]*)\}/)?.[1] ?? ''
+  const darkBlock = css.match(/body\[data-ds-dark-theme\]\{([^}]*)\}/)?.[1] ?? ''
+  const palette = (block) => Object.fromEntries(
+    [...block.matchAll(/--dshc-([a-z]+):(#[0-9a-fA-F]{3,8})/g)].map((match) => [match[1], match[2].toUpperCase()]))
+  const light = palette(lightBlock)
+  const dark = palette(darkBlock)
+  const COLOR_NAMES = ['blue', 'green', 'amber', 'red', 'purple', 'pink', 'cyan', 'gray']
+  check('light palette defines all eight colours',
+    COLOR_NAMES.every((name) => typeof light[name] === 'string'), Object.keys(light).join(','))
+  check('dark palette defines all eight colours',
+    COLOR_NAMES.every((name) => typeof dark[name] === 'string'), Object.keys(dark).join(','))
+  check('every pair differs between the themes',
+    COLOR_NAMES.every((name) => light[name] !== dark[name]),
+    COLOR_NAMES.filter((name) => light[name] === dark[name]).join(','))
+
+  const cssWithoutPalette = css.replace(/:root\{[^}]*\}/, '').replace(/body\[data-ds-dark-theme\]\{[^}]*\}/, '')
+  check('no bare hex outside the palette blocks', !/#[0-9a-fA-F]{3,8}/.test(cssWithoutPalette),
+    (cssWithoutPalette.match(/#[0-9a-fA-F]{3,8}/g) ?? []).join(','))
+  // The bundle itself must not carry literals either: every source line that
+  // mentions a hex colour must be one of the two palette definitions.
+  const straySourceLines = SOURCE.split('\n')
+    .filter((line) => /#[0-9a-fA-F]{3,8}/.test(line) && !/--dshc-/.test(line))
+  check('no hex literal in the bundle outside the palette', straySourceLines.length === 0,
+    straySourceLines.slice(0, 3).join(' | '))
+
+  check('box dot mixes the palette variable, not a fixed grey',
+    /\.sbc-dot\{[^}]*var\(--sbc-box,var\(--dshc-gray\)\)/.test(css))
+  check('box chip mixes the palette variable',
+    /\.sbc-box\{[^}]*var\(--sbc-box,var\(--dshc-gray\)\)/.test(css))
+  check('dark theme raises the chip mix percentages',
+    /body\[data-ds-dark-theme\] \.sbc-box\{[^}]*24%[^}]*50%/.test(css))
+
   loaded.effects.forEach((effect) => effect.dispose?.())
 }
 

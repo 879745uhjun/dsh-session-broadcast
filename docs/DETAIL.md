@@ -35,7 +35,11 @@ chip row and badges disappear and the picker keeps working.
 ## Appearance
 
 The dialog is built from theme tokens only, so it follows the light and dark
-palettes without a separate stylesheet. Every class is scoped to the `sbc-`
+palettes without a separate stylesheet. Box colours are the one exception:
+they are data, not chrome, so they live in a `--dshc-*` eight-colour palette
+with a light set on `:root` and a dark override on
+`body[data-ds-dark-theme]`; the bundle itself carries no colour literals
+outside those two blocks. Every class is scoped to the `sbc-`
 prefix, which keeps it from colliding with the box plugin's own `dsb-` styles
 or with any other plugin that injects CSS into the same document.
 

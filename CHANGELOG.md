@@ -3,6 +3,18 @@
 本文件记录 dsh-session-broadcast 的每次可见变化。版本号遵循语义化版本。本仓库的 git 提交历史从
 0.2.1 起；0.1.0 与 0.2.0 的改动发生在本地工作区，按版本补记于此，便于追溯。
 
+## 0.3.2 — 2026-11-17
+
+### 修复
+
+- **深浅色适配**：盒子数据色改为 `--dshc-*` 八色调色板，`:root` 为浅色默认值，`body[data-ds-dark-theme]` 提供深色覆盖；JS 不再内联十六进制，`--sbc-box` 只承载 `var(--dshc-…)`，颜色随 DSH 主题切换。
+- 深色下盒子徽标的淡底与描边 mix 由 15% / 38% 提高到 24% / 50%，浅色保持原值。
+- 去掉全部裸色值：主按钮背景改用品牌 token（`--dsw-alias-brand-primary-new-color`，兜底 `--dsw-static-deepseek-450`），文字用 `--dsw-alias-label-on-color`；遮罩与阴影改用静态中性 token（`--dsw-static-neutral-bluish-1000`）。
+
+### 测试
+
+- 新增 8 条静态断言：深浅两套八色齐全且两两不同、调色板块外无裸 hex、源码中除调色板行外无 hex、`.sbc-dot` / `.sbc-box` 使用变量、深色 mix 百分比。共 62 项。
+
 ## 0.3.1 — 2026-11-17
 
 ### 性能
