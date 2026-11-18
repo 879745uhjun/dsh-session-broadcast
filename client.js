@@ -42,6 +42,18 @@ window.__ModuleLoader__.load({
     const MODE_STEER = 'steer'
     /** Same-origin route owned by dsh-session-boxes; GET returns `{ ok, state }`. */
     const BOX_ENDPOINT = '/session-boxes'
+    /** Same-origin route owned by dsh-session-todos; GET returns `{ ok, todos }`. */
+    const TODO_ENDPOINT = '/session-todos'
+    /** Same-origin route owned by dsh-session-stars; GET returns `{ ok, ratings }`. */
+    const STAR_ENDPOINT = '/session-stars'
+    /** A peer read that takes longer than this is treated as unavailable. */
+    const PEER_TIMEOUT_MS = 1500
+    /** Window used by the recent-activity filter. */
+    const RECENT_MS = 24 * 60 * 60 * 1000
+    /** Default star threshold for the rating filter. */
+    const STAR_MIN_DEFAULT = 3
+    /** Star thresholds offered by the small select. */
+    const STAR_STEPS = [1, 2, 3, 4, 5]
     /** Filter value meaning "sessions with no box". */
     const UNGROUPED = '__ungrouped__'
     /** Palette dsh-session-boxes accepts; anything else renders as blue. */
@@ -96,6 +108,13 @@ window.__ModuleLoader__.load({
       'mode.toggle': '打断当前回合',
       'mode.queueHint': '排队：等目标会话当前回合结束后再发送，不打断。',
       'mode.steerHint': '打断：立即中断目标会话的当前回合，马上处理这条消息。',
+      'filters.label': '更多筛选',
+      'filter.todo': '待办未完成',
+      'filter.stars': '★≥',
+      'filter.recent': '24h 活跃',
+      'filters.starMin': '最低星级',
+      'badge.todo': '待办',
+      'badge.recent': '24h',
     }
 
     const EN = {
@@ -133,6 +152,13 @@ window.__ModuleLoader__.load({
       'mode.toggle': 'Interrupt the current turn',
       'mode.queueHint': 'Queued: sent after each target finishes its current turn, without interrupting.',
       'mode.steerHint': 'Steer: interrupts each target’s current turn and handles this message immediately.',
+      'filters.label': 'More filters',
+      'filter.todo': 'Unfinished todo',
+      'filter.stars': '★≥',
+      'filter.recent': 'Active 24h',
+      'filters.starMin': 'Minimum rating',
+      'badge.todo': 'Todo',
+      'badge.recent': '24h',
     }
 
     /* ------------------------------------------------------------------ *
@@ -267,6 +293,12 @@ window.__ModuleLoader__.load({
         done: 0,
         notice: '',
         mode: MODE,
+        todoOnly: false,
+        starOnly: false,
+        starMin: STAR_MIN_DEFAULT,
+        recentOnly: false,
+        todos: { status: 'idle', bySession: {} },
+        stars: { status: 'idle', bySession: {} },
         boxes: { status: 'idle', items: [], bySession: {}, error: null },
         boxFilter: null,
       }
@@ -282,8 +314,21 @@ window.__ModuleLoader__.load({
      * the next time the dialog appears.
      */
     function openDialog() {
-      dialog.set((state) => ({ ...state, open: true, phase: 'idle', results: [], notice: '', query: '', boxFilter: null }))
+      dialog.set((state) => ({
+        ...state,
+        open: true,
+        phase: 'idle',
+        results: [],
+        notice: '',
+        query: '',
+        boxFilter: null,
+        todoOnly: false,
+        starOnly: false,
+        recentOnly: false,
+      }))
       void loadBoxes()
+      void loadTodos()
+      void loadStars()
     }
 
     function closeDialog() {
@@ -396,6 +441,125 @@ window.__ModuleLoader__.load({
         }
       })()
       return boxesRequest
+    }
+
+    /**
+     * Read one peer plugin's JSON route with a hard deadline.
+     *
+     * Every failure — missing plugin (404), a hanging server, HTML instead of
+     * JSON, or an unexpected envelope — is the same outcome for the caller: the
+     * filter that depends on it is unavailable. Nothing here writes.
+     *
+     * @param url - same-origin route.
+     * @returns the parsed `{ ok: true, ... }` payload.
+     */
+    async function readPeerJson(url) {
+      const controller = new AbortController()
+      const timer = setTimeout(() => controller.abort(), PEER_TIMEOUT_MS)
+      try {
+        if (typeof fetch !== 'function') throw new Error('fetch is unavailable')
+        const response = await fetch(url, {
+          headers: { accept: 'application/json' },
+          cache: 'no-store',
+          signal: controller.signal,
+        })
+        if (!response.ok) throw new Error(`HTTP ${response.status}`)
+        const payload = await response.json().catch(() => null)
+        if (payload?.ok !== true) throw new Error('unexpected payload')
+        return payload
+      } finally {
+        clearTimeout(timer)
+      }
+    }
+
+    /** Session id → whether its todo is done, from the todos route. */
+    function normalizeTodos(raw) {
+      const bySession = {}
+      for (const [sessionId, entry] of Object.entries(raw ?? {})) {
+        if (typeof sessionId !== 'string' || sessionId === '') continue
+        if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) continue
+        bySession[sessionId] = entry.done === true
+      }
+      return bySession
+    }
+
+    /** Session id → star rating, from the stars route. */
+    function normalizeStars(raw) {
+      const bySession = {}
+      for (const [sessionId, entry] of Object.entries(raw ?? {})) {
+        if (typeof sessionId !== 'string' || sessionId === '') continue
+        if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) continue
+        const stars = Number(entry.stars)
+        if (!Number.isInteger(stars) || stars < 1) continue
+        bySession[sessionId] = stars
+      }
+      return bySession
+    }
+
+    /** In-flight todo read. */
+    let todosRequest = null
+
+    /**
+     * Refresh "sessions with an unfinished todo" from dsh-session-todos.
+     *
+     * Only a recorded, unfinished todo counts; a session without an entry is
+     * "untouched", not "pending". A failed read disables the filter instead of
+     * hiding the whole picker.
+     */
+    function loadTodos() {
+      if (todosRequest !== null) return todosRequest
+      todosRequest = (async () => {
+        try {
+          const payload = await readPeerJson(TODO_ENDPOINT)
+          if (payload.todos === null || typeof payload.todos !== 'object' || Array.isArray(payload.todos)) {
+            throw new Error('missing todos')
+          }
+          dialog.set((state) => ({
+            ...state,
+            todos: { status: 'ready', bySession: normalizeTodos(payload.todos) },
+          }))
+        } catch (error) {
+          console.warn('[session-broadcast] the todo filter is unavailable:', error)
+          dialog.set((state) => ({ ...state, todoOnly: false, todos: { status: 'error', bySession: {} } }))
+        } finally {
+          todosRequest = null
+        }
+      })()
+      return todosRequest
+    }
+
+    /** In-flight star read. */
+    let starsRequest = null
+
+    /** Refresh star ratings from dsh-session-stars; a failed read hides the filter. */
+    function loadStars() {
+      if (starsRequest !== null) return starsRequest
+      starsRequest = (async () => {
+        try {
+          const payload = await readPeerJson(STAR_ENDPOINT)
+          if (payload.ratings === null || typeof payload.ratings !== 'object' || Array.isArray(payload.ratings)) {
+            throw new Error('missing ratings')
+          }
+          dialog.set((state) => ({
+            ...state,
+            stars: { status: 'ready', bySession: normalizeStars(payload.ratings) },
+          }))
+        } catch (error) {
+          console.warn('[session-broadcast] the star filter is unavailable:', error)
+          dialog.set((state) => ({ ...state, starOnly: false, stars: { status: 'error', bySession: {} } }))
+        } finally {
+          starsRequest = null
+        }
+      })()
+      return starsRequest
+    }
+
+    /** Whether one row survives the todo / star / recency filters, which AND together. */
+    function matchesExtraFilters(row, state, now) {
+      if (state.todoOnly && state.todos.bySession[row.id] !== false) return false
+      if (state.starOnly && !((state.stars.bySession[row.id] ?? 0) >= state.starMin)) return false
+      if (state.recentOnly && !(row.updatedAt > 0 && row.updatedAt >= now - RECENT_MS)) return false
+      return true
     }
 
     /** A box and its direct children: selecting a parent covers its sub-boxes. */
@@ -550,6 +714,11 @@ body[data-ds-dark-theme]{--dshc-blue:#4C8DFF;--dshc-green:#3FB950;--dshc-amber:#
 .sbc-filter.is-nested{padding-left:6px;font-size:11.5px}
 .sbc-filter__name{max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .sbc-filter__count{color:var(--dsw-alias-label-secondary);font-size:10.5px;font-variant-numeric:tabular-nums}
+.sbc-filters.is-extra{margin-top:-4px}
+.sbc-star{display:inline-flex;align-items:center;gap:4px}
+.sbc-select{height:24px;padding:0 4px;border-radius:7px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;cursor:pointer}
+.sbc-flag{flex:none;padding:0 6px;border-radius:999px;border:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary);font-size:10px;line-height:15px}
+.sbc-flag.is-star{border-color:color-mix(in srgb,var(--dshc-amber) 55%,transparent);color:var(--dshc-amber)}
 .sbc-dot{width:8px;height:8px;border-radius:50%;background:var(--sbc-box,var(--dshc-gray));flex:none}
 .sbc-list{flex:1;min-height:120px;max-height:320px;overflow:auto;border:1px solid var(--dsw-alias-border-l2);border-radius:9px}
 .sbc-row{display:flex;align-items:center;gap:9px;padding:7px 10px;cursor:pointer;border-bottom:1px solid color-mix(in srgb,var(--dsw-alias-border-l2) 55%,transparent)}
@@ -646,10 +815,12 @@ body[data-ds-dark-theme] .sbc-box{background:color-mix(in srgb,var(--sbc-box,var
         boxIds: boxes.bySession[row.id] ?? [],
       })), [catalog, appCtx, boxes])
       const query = state.query.trim().toLowerCase()
-      const visible = useMemo(
-        () => rows.filter((row) => matchesQuery(row, query) && matchesBoxFilter(row, state.boxFilter, boxes)),
-        [rows, query, state.boxFilter, boxes],
-      )
+      const visible = useMemo(() => {
+        const now = Date.now()
+        return rows.filter((row) => matchesQuery(row, query)
+          && matchesBoxFilter(row, state.boxFilter, boxes)
+          && matchesExtraFilters(row, state, now))
+      }, [rows, query, state, boxes])
       const boxCounts = useMemo(() => {
         const counts = new Map()
         for (const box of boxes.items) {
@@ -659,6 +830,22 @@ body[data-ds-dark-theme] .sbc-box{background:color-mix(in srgb,var(--sbc-box,var
         return { counts, ungrouped: rows.filter((row) => row.boxIds.length === 0).length }
       }, [rows, boxes])
       const showBoxes = boxes.status === 'ready' && boxes.items.length > 0
+
+      // Each extra filter advertises how many rows it would admit on its own.
+      const extraCounts = useMemo(() => {
+        const now = Date.now()
+        let todo = 0
+        let star = 0
+        let recent = 0
+        for (const row of rows) {
+          if (state.todos.bySession[row.id] === false) todo += 1
+          if ((state.stars.bySession[row.id] ?? 0) >= state.starMin) star += 1
+          if (row.updatedAt > 0 && row.updatedAt >= now - RECENT_MS) recent += 1
+        }
+        return { todo, star, recent }
+      }, [rows, state.todos, state.stars, state.starMin])
+      const showRecent = rows.some((row) => row.updatedAt > 0)
+      const showExtras = state.todos.status === 'ready' || state.stars.status === 'ready' || showRecent
       const chosen = selectedCount(rows, state.selected)
       const textRef = useRef(null)
       const priorOpen = useRef(false)
@@ -720,6 +907,17 @@ body[data-ds-dark-theme] .sbc-box{background:color-mix(in srgb,var(--sbc-box,var
         dialog.set((current) => ({ ...current, boxFilter: current.boxFilter === value ? null : value }))
       }, [])
 
+      /** Toggle one extra filter (todo / stars / recency). */
+      const toggleExtra = useCallback((key) => {
+        dialog.set((current) => ({ ...current, [key]: !current[key] }))
+      }, [])
+
+      /** Choosing a threshold implies wanting the rating filter. */
+      const chooseStarMin = useCallback((value) => {
+        const step = STAR_STEPS.includes(value) ? value : STAR_MIN_DEFAULT
+        dialog.set((current) => ({ ...current, starMin: step, starOnly: true }))
+      }, [])
+
       const submit = useCallback(async () => {
         const current = dialog.getSnapshot()
         if (current.phase === 'sending') return
@@ -774,6 +972,19 @@ body[data-ds-dark-theme] .sbc-box{background:color-mix(in srgb,var(--sbc-box,var
       )
 
       /** Workspace plus one badge per box the row belongs to. */
+      /** A neutral filter chip for the extra facets. */
+      const extraChip = (key, label, count, active, onToggle) => h('button', {
+        key,
+        type: 'button',
+        className: active ? 'sbc-filter is-on' : 'sbc-filter',
+        'aria-pressed': active ? 'true' : 'false',
+        disabled: sending,
+        onClick: onToggle,
+      },
+        h('span', { className: 'sbc-filter__name' }, label),
+        count === undefined ? null : h('span', { className: 'sbc-filter__count' }, String(count)),
+      )
+
       const rowMeta = (row) => {
         const parts = []
         if (row.workspace !== '') {
@@ -792,6 +1003,16 @@ body[data-ds-dark-theme] .sbc-box{background:color-mix(in srgb,var(--sbc-box,var
             h('i', { className: 'sbc-dot', 'aria-hidden': 'true' }),
             h('span', { className: 'sbc-box__name' }, label),
           ))
+        }
+        if (state.todoOnly) {
+          parts.push(h('span', { key: 'flag:todo', className: 'sbc-flag' }, tr('badge.todo')))
+        }
+        if (state.starOnly) {
+          parts.push(h('span', { key: 'flag:star', className: 'sbc-flag is-star' },
+            '★' + String(state.stars.bySession[row.id] ?? 0)))
+        }
+        if (state.recentOnly) {
+          parts.push(h('span', { key: 'flag:recent', className: 'sbc-flag' }, tr('badge.recent')))
         }
         if (parts.length === 0) parts.push(h('span', { key: 'id' }, tr('row.id', { id: row.id })))
         return parts
@@ -883,6 +1104,28 @@ body[data-ds-dark-theme] .sbc-box{background:color-mix(in srgb,var(--sbc-box,var
                 box.color,
                 box.parentId !== null,
               )),
+            )
+            : null,
+          showExtras
+            ? h('div', { className: 'sbc-filters is-extra', role: 'group', 'aria-label': tr('filters.label') },
+              state.todos.status === 'ready'
+                ? extraChip('todo', tr('filter.todo'), extraCounts.todo, state.todoOnly, () => toggleExtra('todoOnly'))
+                : null,
+              state.stars.status === 'ready'
+                ? h('span', { className: 'sbc-star', key: 'stars' },
+                  extraChip('stars', tr('filter.stars'), extraCounts.star, state.starOnly, () => toggleExtra('starOnly')),
+                  h('select', {
+                    className: 'sbc-select',
+                    value: String(state.starMin),
+                    disabled: sending,
+                    'aria-label': tr('filters.starMin'),
+                    onChange: (event) => chooseStarMin(Number(event.target.value)),
+                  }, STAR_STEPS.map((step) => h('option', { key: step, value: String(step) }, String(step)))),
+                )
+                : null,
+              showRecent
+                ? extraChip('recent', tr('filter.recent'), extraCounts.recent, state.recentOnly, () => toggleExtra('recentOnly'))
+                : null,
             )
             : null,
           h('div', { className: 'sbc-list', role: 'group', 'aria-label': tr('button.label') },

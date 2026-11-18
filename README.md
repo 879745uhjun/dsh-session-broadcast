@@ -24,6 +24,14 @@ receives the same user message.
   current turn. Turn the toggle on to send with `steer`, which drops the
   target's current turn and handles the message immediately; the hint under the
   toggle always states the current consequence.
+- **Three more facets.** When their plugins are installed, the picker also
+  filters by unfinished todo, by star rating (1–5, default 3) and by activity
+  in the last 24 hours. Every filter ANDs with the others, **Select all** only
+  takes the fully filtered rows, and each row carries a small badge for the
+  active facets so it is obvious why it is listed. Each source degrades on its
+  own: a missing plugin, a route slower than 1.5 s, or a malformed payload
+  hides only that chip, and with every source down the picker falls back to the
+  plain session list.
 - **Honest results.** Delivery writes a few sessions at a time (three) and
   reports a result per target: queued, or the Host's rejection code and
   message. **Retry failed**

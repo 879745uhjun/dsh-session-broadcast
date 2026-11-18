@@ -104,17 +104,40 @@ function type(node, value) {
   node.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
 }
 
-/** Box payload matching what dsh-session-boxes stores and serves. */
+/** Box payload matching what dsh-session-boxes serves. */
 const DEFAULT_BOXES = {
-  boxes: [
-    { id: 'box-work', name: '插件制作', color: 'green', parentId: null, order: 0 },
-    { id: 'box-sub', name: '群发', color: 'cyan', parentId: 'box-work', order: 1 },
-    { id: 'box-ru', name: '俄语', color: 'blue', parentId: null, order: 2 },
-  ],
-  memberships: {
-    's-a': ['box-ru'],
-    's-b': ['box-work'],
-    's-c': ['box-sub'],
+  ok: true,
+  state: {
+    boxes: [
+      { id: 'box-work', name: '插件制作', color: 'green', parentId: null, order: 0 },
+      { id: 'box-sub', name: '群发', color: 'cyan', parentId: 'box-work', order: 1 },
+      { id: 'box-ru', name: '俄语', color: 'blue', parentId: null, order: 2 },
+    ],
+    memberships: {
+      's-a': ['box-ru'],
+      's-b': ['box-work'],
+      's-c': ['box-sub'],
+    },
+  },
+}
+
+/** Todo payload matching what dsh-session-todos serves. */
+const DEFAULT_TODOS = {
+  ok: true,
+  todos: {
+    's-a': { done: false },
+    's-b': { done: true },
+    's-c': { done: false },
+  },
+}
+
+/** Star payload matching what dsh-session-stars serves. */
+const DEFAULT_STARS = {
+  ok: true,
+  ratings: {
+    's-a': { stars: 5 },
+    's-b': { stars: 2 },
+    's-c': { stars: 4 },
   },
 }
 
@@ -133,14 +156,26 @@ function loadPlugin(options = {}) {
   // Run the bundle against the jsdom window.
   new dom.window.Function('window', 'document', SOURCE)(dom.window, dom.window.document)
 
-  const boxes = options.boxes === undefined ? DEFAULT_BOXES : options.boxes
-  dom.window.fetch = async () => {
-    if (boxes === 'fail') throw new Error('the box plugin is not installed')
+  // Each peer route answers independently, so one can fail while others work.
+  const peers = {
+    boxes: options.boxes === undefined ? DEFAULT_BOXES : options.boxes,
+    todos: options.todos === undefined ? DEFAULT_TODOS : options.todos,
+    stars: options.stars === undefined ? DEFAULT_STARS : options.stars,
+  }
+  dom.window.fetch = async (url) => {
+    const request = String(url)
+    const kind = request.includes('session-todos') ? 'todos'
+      : request.includes('session-stars') ? 'stars'
+        : 'boxes'
+    const payload = peers[kind]
+    if (payload === 'fail') throw new Error('the ' + kind + ' plugin is not installed')
+    if (payload === '404') return { ok: false, status: 404, async json() { return { ok: false } } }
+    if (payload === 'bad') return { ok: true, status: 200, async json() { return { ok: true, nonsense: true } } }
     return {
       ok: true,
       status: 200,
       async json() {
-        return { ok: true, state: boxes }
+        return payload
       },
     }
   }
@@ -155,7 +190,13 @@ function loadPlugin(options = {}) {
     row('s-c', { title: 'Card deck', cwd: 'D:\\work\\cards', blank: true, updatedAt: 2_000 }),
     row('s-d', { title: 'Reader', cwd: 'D:\\work\\cards', origin: 'subagent', parentId: 's-c', updatedAt: 1_000 }),
   ]
-  // Per-target latency, so completions can finish out of display order.
+  // Shift the fixture timestamps onto the wall clock so the 24h filter is real.
+  const AGE_HOURS = { 's-a': 2, 's-b': 5, 's-c': 30, 's-d': 40 }
+  for (const entry of rows) {
+    const hours = AGE_HOURS[entry.id]
+    if (typeof hours === 'number') entry.updatedAt = Date.now() - hours * 3_600_000
+  }
+  if (options.noActivity === true) for (const entry of rows) entry.updatedAt = 0
   const latency = options.latency ?? { 's-a': 30, 's-b': 5, 's-c': 15, 's-d': 5 }
   const stats = { active: 0, peak: 0, releases: 0, retained: 0 }
   const sessions = {
@@ -480,6 +521,98 @@ console.log('session-broadcast: delivery mode')
   check('steer keeps the single text part', loaded.deliveries[0].content[0].text === 'steer message')
 }
 
+console.log('session-broadcast: extra filters')
+{
+  const loaded = loadPlugin()
+  const { host } = mount(loaded)
+  await waitFor(() => host.querySelector('button.sbc-tool'), 'toolbar button')
+  host.querySelector('button.sbc-tool').click()
+  await waitFor(() => host.querySelector('.sbc-dialog') !== null, 'dialog')
+  await waitFor(() => host.querySelector('.sbc-filters.is-extra') !== null, 'extra filter row')
+
+  const chipFor = (label) => [...host.querySelectorAll('.sbc-filter')]
+    .find((node) => node.querySelector('.sbc-filter__name')?.textContent === label)
+  const titles = () => [...host.querySelectorAll('.sbc-row .sbc-name')].map((node) => node.textContent)
+
+  check('todo chip counts unfinished todos',
+    chipFor('待办未完成')?.querySelector('.sbc-filter__count')?.textContent === '2')
+  chipFor('待办未完成').click()
+  await waitFor(() => titles().length === 2, 'todo filter')
+  check('todo filter keeps the unfinished sessions',
+    titles().slice().sort().join(',') === 'Card deck,Russian grammar', titles().join(','))
+  check('todo badge explains why each row is listed',
+    [...host.querySelectorAll('.sbc-flag')].length === 2
+    && [...host.querySelectorAll('.sbc-flag')].every((node) => node.textContent === '待办'))
+  chipFor('待办未完成').click()
+  await waitFor(() => titles().length === 4, 'todo filter cleared')
+
+  check('star chip counts by the default threshold',
+    chipFor('★≥')?.querySelector('.sbc-filter__count')?.textContent === '2')
+  chipFor('★≥').click()
+  await waitFor(() => titles().length === 2, 'star filter')
+  check('star filter keeps sessions at or above three',
+    titles().slice().sort().join(',') === 'Card deck,Russian grammar', titles().join(','))
+  const starBadges = [...host.querySelectorAll('.sbc-flag.is-star')].map((node) => node.textContent).sort().join(',')
+  check('star badge shows each rating', starBadges === '★4,★5', starBadges)
+
+  const select = host.querySelector('select.sbc-select')
+  check('threshold select defaults to three', select?.value === '3', select?.value)
+  select.value = '5'
+  select.dispatchEvent(new dom.window.Event('change', { bubbles: true }))
+  await waitFor(() => titles().length === 1, 'star threshold 5')
+  check('raising the threshold narrows the list', titles()[0] === 'Russian grammar')
+
+  chipFor('24h 活跃').click()
+  await waitFor(() => titles().length === 1, 'star and recency together')
+  check('filters AND together', titles()[0] === 'Russian grammar')
+  chipFor('★≥').click()
+  await waitFor(() => titles().length === 2, 'recency alone')
+  check('recency keeps the last day only',
+    titles().slice().sort().join(',') === 'Court book,Russian grammar', titles().join(','))
+
+  // Select all must only take the rows the whole filter set admits.
+  host.querySelectorAll('.sbc-mini')[0].click()
+  await waitFor(() => host.querySelectorAll('.sbc-row.is-checked').length === 2, 'select filtered')
+  type(host.querySelector('textarea.sbc-text'), 'filtered ping')
+  await waitFor(() => host.querySelector('.sbc-btn.is-primary').disabled === false, 'send enabled')
+  host.querySelector('.sbc-btn.is-primary').click()
+  await waitFor(() => host.querySelector('.sbc-results') !== null, 'results', 10_000)
+  const sent = loaded.deliveries.map((call) => call.id).sort().join(',')
+  check('delivery followed the filtered selection only', sent === 's-a,s-b', sent)
+}
+
+console.log('session-broadcast: filter degradation')
+{
+  const loaded = loadPlugin({ todos: '404', stars: 'bad' })
+  const { host } = mount(loaded)
+  await waitFor(() => host.querySelector('button.sbc-tool'), 'toolbar button')
+  host.querySelector('button.sbc-tool').click()
+  await waitFor(() => host.querySelector('.sbc-dialog') !== null, 'dialog')
+  await new Promise((resolve) => setTimeout(resolve, 200))
+  const chipFor = (label) => [...host.querySelectorAll('.sbc-filter')]
+    .find((node) => node.querySelector('.sbc-filter__name')?.textContent === label)
+  check('todo chip hides on a 404', chipFor('待办未完成') === undefined)
+  check('star chip hides on a malformed payload', chipFor('★≥') === undefined)
+  check('recency chip still works', chipFor('24h 活跃') !== undefined)
+  check('box chips still work', chipFor('插件制作') !== undefined)
+  check('the list still shows every session', host.querySelectorAll('.sbc-row').length === 4)
+}
+
+console.log('session-broadcast: every facet source down')
+{
+  const loaded = loadPlugin({ boxes: 'fail', todos: 'fail', stars: 'fail', noActivity: true })
+  const { host } = mount(loaded)
+  await waitFor(() => host.querySelector('button.sbc-tool'), 'toolbar button')
+  host.querySelector('button.sbc-tool').click()
+  await waitFor(() => host.querySelector('.sbc-dialog') !== null, 'dialog')
+  await new Promise((resolve) => setTimeout(resolve, 250))
+  check('no box chips', [...host.querySelectorAll('.sbc-filter__name')]
+    .every((node) => node.textContent !== '插件制作'))
+  check('no extra filter row when nothing is available',
+    host.querySelector('.sbc-filters.is-extra') === null)
+  check('the picker falls back to the plain list', host.querySelectorAll('.sbc-row').length === 4)
+}
+
 console.log('session-broadcast: boxes unavailable')
 {
   const loaded = loadPlugin({ boxes: 'fail' })
@@ -488,7 +621,8 @@ console.log('session-broadcast: boxes unavailable')
   host.querySelector('button.sbc-tool').click()
   await waitFor(() => host.querySelector('.sbc-dialog') !== null, 'dialog')
   await new Promise((resolve) => setTimeout(resolve, 150))
-  check('box chips stay hidden without the box plugin', host.querySelectorAll('.sbc-filter').length === 0)
+  check('box chips stay hidden without the box plugin',
+    [...host.querySelectorAll('.sbc-filter__name')].every((node) => node.textContent !== '插件制作'))
   check('the picker still lists every session', host.querySelectorAll('.sbc-row').length === 4)
   check('rows fall back to the session id', host.querySelector('.sbc-meta') !== null)
 }

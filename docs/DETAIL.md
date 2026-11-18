@@ -43,6 +43,28 @@ outside those two blocks. Every class is scoped to the `sbc-`
 prefix, which keeps it from colliding with the box plugin's own `dsb-` styles
 or with any other plugin that injects CSS into the same document.
 
+## Filters
+
+Boxes are one facet. The picker offers three more when their plugins are
+installed, and all of them AND together:
+
+- **Unfinished todo** reads `/session-todos`. Only a recorded todo with
+  `done: false` counts; a session with no entry is untouched, not pending.
+- **Star rating** reads `/session-stars` and keeps sessions at or above a
+  threshold chosen from a small 1–5 select (default 3).
+- **Recent activity** keeps sessions whose catalog `updatedAt` falls inside the
+  last 24 hours. It needs no extra request.
+
+Each row shows a badge for every active facet, so a filtered list never leaves
+the reason implicit. **Select all** and **Clear** act on the fully filtered
+rows, which is what makes "one box, five stars, send" a two-click operation.
+
+Every peer read is independent and has a hard 1.5 s deadline. A missing route,
+a timeout, or a payload without its expected key disables exactly that chip and
+leaves the rest working; when no facet source is available at all, the dialog
+falls back to the plain session list. The plugin only reads these routes — it
+never writes to another plugin's data or touches its files.
+
 ## Delivery semantics
 
 The plugin does not invent a messaging channel. Each target is prompted through
