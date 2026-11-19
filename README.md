@@ -57,6 +57,22 @@ current session count, and a sub-box chip reads as `parent › child`. When the
 session-boxes plugin is absent or its route fails, the chip row and the row
 badges disappear and everything else keeps working.
 
+## Self-test
+
+Settings → Plugins → select **Session broadcast**. The detail page ends with a
+**Self-test** section. Checks run **only when you press Run self-test**; mounting
+the page issues no requests.
+
+Six checks: the session list is readable, the composer button is registered,
+the optional `/session-boxes`, `/session-todos` and `/session-stars` routes
+answer, and the delivery channel (`sessions.retain`) exists.
+
+Every check has a 2 s deadline and turns a timeout or an error into a row
+instead of breaking the rest. The three optional routes report **Unavailable**
+(a warning) rather than a failure, because they only feed the filters. The run
+is read-only: it never sends a message and never writes to a peer plugin.
+**Copy results** produces the conventional Markdown list.
+
 ## Limits
 
 - Text only. Attachments and images cannot be broadcast.

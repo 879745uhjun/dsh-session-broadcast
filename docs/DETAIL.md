@@ -65,6 +65,24 @@ leaves the rest working; when no facet source is available at all, the dialog
 falls back to the plain session list. The plugin only reads these routes — it
 never writes to another plugin's data or touches its files.
 
+## Self-test
+
+The bundle's own detail page (Settings → Plugins → Session broadcast) ends with
+a **Self-test** section registered on `plugins.detail.section`. It renders only
+for this package and runs only when the button is pressed:
+
+- the session catalog snapshot is readable;
+- the composer button registered on `conversation.input.left`;
+- the optional `/session-boxes`, `/session-todos` and `/session-stars` routes
+  answer with their expected envelope;
+- the delivery channel exists (`sessions.retain` is callable).
+
+Each probe has a 2 s deadline and reports a row instead of throwing. The three
+optional routes are warnings when missing — they are filter sources, not core
+function — while a broken catalog or delivery channel is a real failure. The
+run is strictly read-only: no prompt is sent and no peer data is written.
+**Copy results** emits the conventional Markdown checklist.
+
 ## Delivery semantics
 
 The plugin does not invent a messaging channel. Each target is prompted through

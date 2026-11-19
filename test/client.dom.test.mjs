@@ -162,7 +162,7 @@ function loadPlugin(options = {}) {
     todos: options.todos === undefined ? DEFAULT_TODOS : options.todos,
     stars: options.stars === undefined ? DEFAULT_STARS : options.stars,
   }
-  dom.window.fetch = async (url) => {
+  dom.window.fetch = async (url, init) => {
     const request = String(url)
     const kind = request.includes('session-todos') ? 'todos'
       : request.includes('session-stars') ? 'stars'
@@ -171,6 +171,14 @@ function loadPlugin(options = {}) {
     if (payload === 'fail') throw new Error('the ' + kind + ' plugin is not installed')
     if (payload === '404') return { ok: false, status: 404, async json() { return { ok: false } } }
     if (payload === 'bad') return { ok: true, status: 200, async json() { return { ok: true, nonsense: true } } }
+    if (payload === 'hang') {
+      return new Promise((resolve, reject) => {
+        const signal = init?.signal
+        const abort = () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' }))
+        if (signal?.aborted) abort()
+        else signal?.addEventListener('abort', abort, { once: true })
+      })
+    }
     return {
       ok: true,
       status: 200,
@@ -286,6 +294,22 @@ function mount(loaded) {
     h(overlay.component, { t, ...overlay.entry.inject() }),
   ))
   return { host, root }
+}
+
+/** Render the self-test section for one detail subject. */
+function mountSection(loaded, subject, appCtx) {
+  const section = loaded.slotEntries.find((slot) => slot.entry.id === 'dsh-session-broadcast.selftest')
+  if (section === undefined) throw new Error('the self-test section must be registered')
+  const t = translator(loaded.dicts.zh ?? {})
+  const host = document.createElement('div')
+  document.body.appendChild(host)
+  const root = createRoot(host)
+  root.render(h(section.component, {
+    t,
+    subject,
+    ...(appCtx === undefined ? section.entry.inject() : { appCtx }),
+  }))
+  return { host, section }
 }
 
 /* ------------------------------------------------------------------ *
@@ -625,6 +649,104 @@ console.log('session-broadcast: boxes unavailable')
     [...host.querySelectorAll('.sbc-filter__name')].every((node) => node.textContent !== '插件制作'))
   check('the picker still lists every session', host.querySelectorAll('.sbc-row').length === 4)
   check('rows fall back to the session id', host.querySelector('.sbc-meta') !== null)
+}
+
+console.log('session-broadcast: self-test section')
+{
+  const loaded = loadPlugin()
+  const section = loaded.slotEntries.find((slot) => slot.entry.id === 'dsh-session-broadcast.selftest')
+  check('section lives on the detail slot', section?.entry.name === 'plugins.detail.section')
+  check('section id follows the convention', section?.entry.id === 'dsh-session-broadcast.selftest')
+  check('section order is 90', section?.entry.order === 90)
+  check('section title is localized',
+    loaded.dicts.zh?.['self.title'] === '自检' && loaded.dicts.en?.['self.title'] === 'Self-test')
+}
+
+console.log('session-broadcast: self-test runs only on click')
+{
+  const loaded = loadPlugin()
+  const subject = { kind: 'bundle', pkg: { name: 'dsh-session-broadcast' } }
+  const { host } = mountSection(loaded, subject)
+  await waitFor(() => host.querySelector('.sbc-self'), 'section')
+  check('idle until the button is pressed', host.querySelector('.sbc-self__summary').textContent === '未运行')
+  check('no check rows before running', host.querySelectorAll('.sbc-self__badge').length === 0)
+
+  host.querySelector('.sbc-self .sbc-btn.is-primary').click()
+  await waitFor(() => host.querySelectorAll('.sbc-self__badge').length === 6, 'checks to finish', 10_000)
+  check('six checks reported', host.querySelectorAll('.sbc-self__row').length === 6)
+  check('every check passes when the routes answer',
+    host.querySelectorAll('.sbc-self__badge.is-pass').length === 6)
+  check('summary counts the passes',
+    host.querySelector('.sbc-self__summary').textContent.includes('6 通过'),
+    host.querySelector('.sbc-self__summary').textContent)
+}
+
+console.log('session-broadcast: self-test degradation')
+{
+  const loaded = loadPlugin({ stars: '404' })
+  const { host } = mountSection(loaded, { kind: 'bundle', pkg: { name: 'dsh-session-broadcast' } })
+  await waitFor(() => host.querySelector('.sbc-self'), 'section')
+  host.querySelector('.sbc-self .sbc-btn.is-primary').click()
+  await waitFor(() => host.querySelectorAll('.sbc-self__badge').length === 6, 'checks', 10_000)
+  check('a missing optional route is a warning, not a failure',
+    host.querySelectorAll('.sbc-self__badge.is-warn').length === 1)
+  check('the other checks still pass', host.querySelectorAll('.sbc-self__badge.is-pass').length === 5)
+  check('summary separates warnings',
+    host.querySelector('.sbc-self__summary').textContent.includes('1 不可用'),
+    host.querySelector('.sbc-self__summary').textContent)
+}
+
+console.log('session-broadcast: self-test delivery probe fails alone')
+{
+  const loaded = loadPlugin()
+  const weak = { get: (name) => (name === 'sessions' ? { list: loaded.sessions.list } : undefined) }
+  const { host } = mountSection(loaded, { kind: 'bundle', pkg: { name: 'dsh-session-broadcast' } }, weak)
+  await waitFor(() => host.querySelector('.sbc-self'), 'section')
+  host.querySelector('.sbc-self .sbc-btn.is-primary').click()
+  await waitFor(() => host.querySelectorAll('.sbc-self__badge').length === 6, 'checks', 10_000)
+  check('missing retain fails exactly one check',
+    host.querySelectorAll('.sbc-self__badge.is-fail').length === 1)
+  check('the catalog check is unaffected', host.querySelectorAll('.sbc-self__badge.is-pass').length === 5)
+}
+
+console.log('session-broadcast: self-test timeout')
+{
+  const loaded = loadPlugin({ stars: 'hang' })
+  const { host } = mountSection(loaded, { kind: 'bundle', pkg: { name: 'dsh-session-broadcast' } })
+  await waitFor(() => host.querySelector('.sbc-self'), 'section')
+  host.querySelector('.sbc-self .sbc-btn.is-primary').click()
+  await waitFor(() => host.querySelectorAll('.sbc-self__badge').length === 6, 'checks after timeout', 10_000)
+  const warn = host.querySelector('.sbc-self__badge.is-warn')
+  check('a hanging route times out into a warning', warn !== null)
+  check('the timeout is named in the detail', host.querySelector('.sbc-self').textContent.includes('timeout'))
+}
+
+console.log('session-broadcast: self-test markdown')
+{
+  const loaded = loadPlugin()
+  let copied = ''
+  Object.defineProperty(dom.window.navigator, 'clipboard', {
+    configurable: true,
+    value: { writeText: async (text) => { copied = text } },
+  })
+  const { host } = mountSection(loaded, { kind: 'bundle', pkg: { name: 'dsh-session-broadcast' } })
+  await waitFor(() => host.querySelector('.sbc-self'), 'section')
+  host.querySelector('.sbc-self .sbc-btn.is-primary').click()
+  await waitFor(() => host.querySelectorAll('.sbc-self__badge').length === 6, 'checks', 10_000)
+  host.querySelector('.sbc-self .sbc-btn:not(.is-primary)').click()
+  await waitFor(() => copied !== '', 'clipboard write')
+  const lines = copied.split('\n')
+  check('one markdown line per check', lines.length === 6, String(lines.length))
+  check('checkbox shape per the convention', lines.every((line) => /^- \[[ x]\] .+ — /.test(line)), lines[0])
+  check('a pass line is checked', copied.includes('- [x] 会话列表可读 — 通过'))
+}
+
+console.log('session-broadcast: self-test scoping')
+{
+  const loaded = loadPlugin()
+  const { host } = mountSection(loaded, { kind: 'bundle', pkg: { name: 'dsh-other-plugin' } })
+  await new Promise((resolve) => setTimeout(resolve, 50))
+  check('hidden on another bundle detail page', host.querySelector('.sbc-self') === null)
 }
 
 console.log(failures === 0 ? '\nsession-broadcast: all checks passed' : '\nsession-broadcast: ' + failures + ' check(s) failed')

@@ -30,7 +30,7 @@ window.__ModuleLoader__.load({
   factory(require) {
     const React = require('react')
     const h = React.createElement
-    const { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } = React
+    const { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } = React
 
     /** Locale namespace shared by the two components. */
     const NS = 'session-broadcast'
@@ -115,6 +115,26 @@ window.__ModuleLoader__.load({
       'filters.starMin': '最低星级',
       'badge.todo': '待办',
       'badge.recent': '24h',
+      'self.title': '自检',
+      'self.run': '运行自检',
+      'self.copy': '复制结果',
+      'self.copied': '已复制',
+      'self.idle': '未运行',
+      'self.running': '运行中',
+      'self.pass': '通过',
+      'self.fail': '失败',
+      'self.warn': '不可用',
+      'self.summary': '{pass} 通过 · {fail} 失败 · {warn} 不可用',
+      'self.check.catalog': '会话列表可读',
+      'self.check.toolbar': '工具栏按钮已注册',
+      'self.check.boxes': '可选依赖：箱子',
+      'self.check.todos': '可选依赖：待办',
+      'self.check.stars': '可选依赖：星级',
+      'self.check.delivery': '投递通道可用',
+      'self.detail.catalog': '会话目录不可用',
+      'self.detail.toolbar': '未注册 conversation.input.left',
+      'self.detail.optional': '该筛选项不可用',
+      'self.detail.delivery': 'sessions.retain 不可用',
     }
 
     const EN = {
@@ -159,6 +179,26 @@ window.__ModuleLoader__.load({
       'filters.starMin': 'Minimum rating',
       'badge.todo': 'Todo',
       'badge.recent': '24h',
+      'self.title': 'Self-test',
+      'self.run': 'Run self-test',
+      'self.copy': 'Copy results',
+      'self.copied': 'Copied',
+      'self.idle': 'Not run',
+      'self.running': 'Running',
+      'self.pass': 'Pass',
+      'self.fail': 'Fail',
+      'self.warn': 'Unavailable',
+      'self.summary': '{pass} passed · {fail} failed · {warn} unavailable',
+      'self.check.catalog': 'Session list readable',
+      'self.check.toolbar': 'Composer button registered',
+      'self.check.boxes': 'Optional: boxes route',
+      'self.check.todos': 'Optional: todos route',
+      'self.check.stars': 'Optional: stars route',
+      'self.check.delivery': 'Delivery channel available',
+      'self.detail.catalog': 'the session catalog is unavailable',
+      'self.detail.toolbar': 'conversation.input.left was not registered',
+      'self.detail.optional': 'this filter is unavailable',
+      'self.detail.delivery': 'sessions.retain is unavailable',
     }
 
     /* ------------------------------------------------------------------ *
@@ -719,6 +759,18 @@ body[data-ds-dark-theme]{--dshc-blue:#4C8DFF;--dshc-green:#3FB950;--dshc-amber:#
 .sbc-select{height:24px;padding:0 4px;border-radius:7px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;cursor:pointer}
 .sbc-flag{flex:none;padding:0 6px;border-radius:999px;border:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary);font-size:10px;line-height:15px}
 .sbc-flag.is-star{border-color:color-mix(in srgb,var(--dshc-amber) 55%,transparent);color:var(--dshc-amber)}
+.sbc-self{display:flex;flex-direction:column;gap:10px;margin-top:16px;padding:12px 14px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-2)}
+.sbc-self__head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.sbc-self__title{font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary)}
+.sbc-self__summary{margin-left:auto;color:var(--dsw-alias-label-secondary);font-size:12px}
+.sbc-self__list{display:flex;flex-direction:column;gap:6px;margin:0;padding:0;list-style:none}
+.sbc-self__row{display:flex;align-items:flex-start;gap:10px;font-size:12px;line-height:17px}
+.sbc-self__label{display:flex;flex-direction:column;flex:1;min-width:0}
+.sbc-self__detail{color:var(--dsw-alias-label-secondary);font-size:11px;line-height:15px;margin-top:2px;word-break:break-word}
+.sbc-self__badge{flex:none;padding:0 7px;border-radius:999px;border:1px solid var(--dsw-alias-border-l2);color:var(--dsw-alias-label-secondary);font-size:10.5px;line-height:17px}
+.sbc-self__badge.is-pass{border-color:color-mix(in srgb,var(--dsw-alias-state-success-primary) 60%,transparent);color:var(--dsw-alias-state-success-primary)}
+.sbc-self__badge.is-fail{border-color:color-mix(in srgb,var(--dsw-alias-state-error-primary) 60%,transparent);color:var(--dsw-alias-state-error-primary)}
+.sbc-self__badge.is-warn{border-color:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 60%,transparent);color:var(--dsw-alias-state-warn-primary)}
 .sbc-dot{width:8px;height:8px;border-radius:50%;background:var(--sbc-box,var(--dshc-gray));flex:none}
 .sbc-list{flex:1;min-height:120px;max-height:320px;overflow:auto;border:1px solid var(--dsw-alias-border-l2);border-radius:9px}
 .sbc-row{display:flex;align-items:center;gap:9px;padding:7px 10px;cursor:pointer;border-bottom:1px solid color-mix(in srgb,var(--dsw-alias-border-l2) 55%,transparent)}
@@ -1203,6 +1255,201 @@ body[data-ds-dark-theme] .sbc-box{background:color-mix(in srgb,var(--sbc-box,var
      * Client plugin
      * ------------------------------------------------------------------ */
 
+    /* ------------------------------------------------------------------ *
+     * Self-test section (plugin detail page)
+     * ------------------------------------------------------------------ */
+
+    /** The package this bundle answers to; the detail page shows every bundle. */
+    const PACKAGE_NAME = 'dsh-session-broadcast'
+    /** Deadline for one probe. */
+    const PROBE_TIMEOUT_MS = 2000
+    /** Set once the composer button registration ran, so the self-test can see it. */
+    let toolbarRegistered = false
+
+    /** Optional peer routes probed by the self-test, one row each. */
+    const OPTIONAL_ROUTES = [
+      { url: BOX_ENDPOINT, label: 'self.check.boxes' },
+      { url: TODO_ENDPOINT, label: 'self.check.todos' },
+      { url: STAR_ENDPOINT, label: 'self.check.stars' },
+    ]
+
+    /**
+     * Markdown shape required by the section convention.
+     *
+     * @param results - finished check rows.
+     * @returns one `- [x]` / `- [ ]` line per row.
+     */
+    function selfTestMarkdown(results) {
+      return results.map((row) => {
+        if (row.status === 'pass') return `- [x] ${row.label} — 通过`
+        if (row.status === 'warn') return `- [x] ${row.label} — 通过（不可用：${row.detail}）`
+        return `- [ ] ${row.label} — 失败：${row.detail}`
+      }).join('\n')
+    }
+
+    /**
+     * Probe one optional peer route. Never throws; a missing plugin, a slow
+     * server, or HTML instead of JSON all come back as "unavailable".
+     *
+     * @param url - same-origin route.
+     * @returns `{ ok, detail }`.
+     */
+    async function probeRoute(url) {
+      if (typeof fetch !== 'function') return { ok: false, detail: 'fetch is unavailable' }
+      const controller = new AbortController()
+      const timer = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS)
+      try {
+        const response = await fetch(url, {
+          headers: { accept: 'application/json' },
+          cache: 'no-store',
+          signal: controller.signal,
+        })
+        const payload = await response.json().catch(() => null)
+        if (!response.ok) return { ok: false, detail: `HTTP ${response.status}` }
+        if (payload?.ok !== true) return { ok: false, detail: 'unexpected payload' }
+        return { ok: true }
+      } catch (error) {
+        const detail = error?.name === 'AbortError'
+          ? 'timeout'
+          : (error instanceof Error ? error.message : String(error))
+        return { ok: false, detail }
+      } finally {
+        clearTimeout(timer)
+      }
+    }
+
+    /**
+     * Run every check once, in order, and describe the outcome per row.
+     *
+     * Read-only by construction: it inspects the service object, reads the
+     * catalog snapshot, and issues GETs. It never prompts a Session and never
+     * writes to a peer plugin.
+     *
+     * @param sessions - Client Session Controller service.
+     * @param tr - locale translator.
+     * @returns check rows: `{ id, label, status, detail }`.
+     */
+    async function runSelfTest(sessions, tr) {
+      const results = []
+      const add = (id, label, status, detail) => {
+        results.push({ id, label, status, detail })
+      }
+
+      let catalogOk = false
+      let catalogDetail = ''
+      try {
+        const snapshot = sessions?.list?.getSnapshot?.()
+        catalogOk = Array.isArray(snapshot?.ids)
+          && snapshot?.byId !== null
+          && typeof snapshot?.byId === 'object'
+        if (!catalogOk) catalogDetail = tr('self.detail.catalog')
+      } catch (error) {
+        catalogDetail = error instanceof Error ? error.message : String(error)
+      }
+      add('catalog', tr('self.check.catalog'), catalogOk ? 'pass' : 'fail', catalogDetail)
+
+      add('toolbar', tr('self.check.toolbar'), toolbarRegistered ? 'pass' : 'fail',
+        toolbarRegistered ? '' : tr('self.detail.toolbar'))
+
+      for (const route of OPTIONAL_ROUTES) {
+        const outcome = await probeRoute(route.url)
+        add(route.url, tr(route.label), outcome.ok ? 'pass' : 'warn',
+          outcome.ok ? '' : `${tr('self.detail.optional')}（${outcome.detail}）`)
+      }
+
+      const deliveryOk = typeof sessions?.retain === 'function'
+      add('delivery', tr('self.check.delivery'), deliveryOk ? 'pass' : 'fail',
+        deliveryOk ? '' : tr('self.detail.delivery'))
+
+      return results
+    }
+
+    /** One status pill for a check row. */
+    function selfBadge(row, tr) {
+      const label = row.status === 'pass' ? tr('self.pass')
+        : row.status === 'warn' ? tr('self.warn')
+          : row.status === 'running' ? tr('self.running')
+            : tr('self.fail')
+      return h('span', { className: `sbc-self__badge is-${row.status}` }, label)
+    }
+
+    /**
+     * The "self-test" section on this bundle's plugin detail page.
+     *
+     * Rendered for every bundle, so it stays invisible unless the detail page is
+     * showing this package. Checks run only when the button is pressed.
+     *
+     * @param props - slot props: `t`, the detail `subject`, and the injected
+     *   Client context carrying the sessions service.
+     */
+    function SelfTestSection({ t, subject, appCtx }) {
+      const tr = typeof t === 'function' ? t : (key) => key
+      const sessions = appCtx?.get?.('sessions')
+      const [state, setState] = useState({ phase: 'idle', results: [], copied: false })
+
+      const packageName = subject?.pkg?.name ?? (subject?.kind === 'item' ? subject.id : '')
+      const mine = packageName === PACKAGE_NAME
+
+      const run = useCallback(async () => {
+        if (state.phase === 'running') return
+        setState({ phase: 'running', results: [], copied: false })
+        const results = await runSelfTest(sessions, tr)
+        setState({ phase: 'done', results, copied: false })
+      }, [state.phase, sessions, tr])
+
+      const copy = useCallback(async () => {
+        const markdown = selfTestMarkdown(state.results)
+        try {
+          await navigator.clipboard.writeText(markdown)
+          setState((current) => ({ ...current, copied: true }))
+        } catch {
+          /* clipboard refused; the rows are still on screen */
+        }
+      }, [state.results])
+
+      if (!mine) return null
+
+      const passed = state.results.filter((row) => row.status === 'pass').length
+      const failed = state.results.filter((row) => row.status === 'fail').length
+      const warned = state.results.filter((row) => row.status === 'warn').length
+      const summary = state.phase === 'idle'
+        ? tr('self.idle')
+        : state.phase === 'running'
+          ? tr('self.running')
+          : tr('self.summary', { pass: passed, fail: failed, warn: warned })
+
+      return h('section', { className: 'sbc-self', 'aria-label': tr('self.title') },
+        h('div', { className: 'sbc-self__head' },
+          h('span', { className: 'sbc-self__title' }, tr('self.title')),
+          h('button', {
+            type: 'button',
+            className: 'sbc-btn is-primary',
+            disabled: state.phase === 'running',
+            onClick: () => { void run() },
+          }, state.phase === 'running' ? tr('self.running') : tr('self.run')),
+          h('button', {
+            type: 'button',
+            className: 'sbc-btn',
+            disabled: state.results.length === 0,
+            onClick: () => { void copy() },
+          }, state.copied ? tr('self.copied') : tr('self.copy')),
+          h('span', { className: 'sbc-self__summary' }, summary),
+        ),
+        h('ul', { className: 'sbc-self__list' },
+          state.results.length === 0
+            ? h('li', { className: 'sbc-self__row' },
+              h('span', { className: 'sbc-self__label' }, tr('self.idle')))
+            : state.results.map((row) => h('li', { key: row.id, className: 'sbc-self__row' },
+              h('span', { className: 'sbc-self__label' },
+                h('span', {}, row.label),
+                row.detail === '' ? null : h('span', { className: 'sbc-self__detail' }, row.detail),
+              ),
+              selfBadge(row, tr),
+            )),
+        ),
+      )
+    }
+
     return {
       inject: ['slots', 'sessions', 'locale'],
       apply(ctx) {
@@ -1232,12 +1479,16 @@ body[data-ds-dark-theme] .sbc-box{background:color-mix(in srgb,var(--sbc-box,var
           pt: EN,
         }), 'session-broadcast: dictionaries')
 
-        ctx.slots.inject('conversation.input.left', () => ctx.slots.register({
-          name: 'conversation.input.left',
-          id: 'session-broadcast-button',
-          order: 40,
-          locale: NS,
-        }, ToolbarButton))
+        ctx.slots.inject('conversation.input.left', () => {
+          const dispose = ctx.slots.register({
+            name: 'conversation.input.left',
+            id: 'session-broadcast-button',
+            order: 40,
+            locale: NS,
+          }, ToolbarButton)
+          toolbarRegistered = true
+          return dispose
+        })
 
         ctx.slots.inject('shell.overlay', () => ctx.slots.register({
           name: 'shell.overlay',
@@ -1246,6 +1497,14 @@ body[data-ds-dark-theme] .sbc-box{background:color-mix(in srgb,var(--sbc-box,var
           locale: NS,
           inject: () => ({ appCtx: ctx }),
         }, BroadcastDialog))
+
+        ctx.slots.inject('plugins.detail.section', () => ctx.slots.register({
+          name: 'plugins.detail.section',
+          id: 'dsh-session-broadcast.selftest',
+          order: 90,
+          locale: NS,
+          inject: () => ({ appCtx: ctx }),
+        }, SelfTestSection))
       },
     }
   },
